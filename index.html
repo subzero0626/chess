@@ -1,1 +1,426 @@
-# chess
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 100vw; height: 100vh;
+      background: #888;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .target {
+      position: absolute;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.28);
+      border: 2px solid rgba(255,255,255,0.55);
+      transform: translate(-50%,-50%);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.18s, background 0.12s, transform 0.12s;
+    }
+    .target.show  { opacity: 1; }
+    .target.active {
+      background: rgba(255,255,255,0.62);
+      transform: translate(-50%,-50%) scale(1.25);
+    }
+    .target.cap {
+      background: rgba(210,50,50,0.30);
+      border-color: rgba(210,50,50,0.70);
+    }
+    .target.cap.active {
+      background: rgba(210,50,50,0.70);
+      transform: translate(-50%,-50%) scale(1.25);
+    }
+
+    #enemy {
+      position: absolute;
+      transform: translate(-50%,-50%);
+      width: 64px; height: 64px;
+      pointer-events: none;
+      display: none;
+      filter: drop-shadow(2px 5px 8px rgba(0,0,0,0.65));
+    }
+
+    #pawn {
+      position: absolute;
+      transform: translate(-50%,-50%);
+      cursor: grab;
+      width: 96px; height: 96px;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 10;
+    }
+    #pawn.cooldown { cursor: default; }
+    #pawn.dragging { cursor: grabbing; }
+
+    #pawn-inner {
+      width: 64px; height: 64px; flex-shrink: 0;
+      transition: transform 0.18s cubic-bezier(0.34,1.5,0.64,1), filter 0.18s;
+      filter: drop-shadow(2px 5px 7px rgba(0,0,0,0.45));
+    }
+    #pawn.dragging #pawn-inner {
+      transform: translateY(-4px) scale(1.03);
+      filter: drop-shadow(5px 16px 14px rgba(0,0,0,0.55));
+    }
+
+    @keyframes hitFlash {
+      0%   { filter: drop-shadow(2px 5px 7px rgba(0,0,0,0.45)); }
+      35%  { filter: drop-shadow(0 0 22px rgba(255,30,30,1)) brightness(1.6); }
+      100% { filter: drop-shadow(2px 5px 7px rgba(0,0,0,0.45)); }
+    }
+    #pawn.hit #pawn-inner { animation: hitFlash 0.5s ease forwards; }
+
+    #gauge {
+      position: absolute; top: 4px; right: 4px;
+      width: 20px; height: 20px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.12s;
+    }
+    #pawn.cooldown #gauge { opacity: 1; }
+    .gauge-track { fill: none; stroke: rgba(0,0,0,0.30); stroke-width: 4.5; }
+    .gauge-fill  { fill: none; stroke: white; stroke-width: 4.5;
+                   stroke-dasharray: 56.55; stroke-dashoffset: 56.55;
+                   stroke-linecap: round; }
+    @keyframes gaugeSpin {
+      from { stroke-dashoffset: 56.55; }
+      to   { stroke-dashoffset: 0; }
+    }
+    #pawn.cooldown .gauge-fill { animation: gaugeSpin 1s linear forwards; }
+  </style>
+</head>
+<body>
+
+<div id="enemy">
+  <svg viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg">
+    <path d="M 16 19 C 12 23, 9 28, 9 33 C 9 37, 11 39, 15 40
+             L 8 40 Q 6 40 6 42 Q 6 44 8 44 L 36 44 Q 38 44 38 42 Q 38 40 36 40
+             L 29 40 C 33 39, 35 37, 35 33 C 35 28, 32 23, 28 19 Z"
+          fill="#1a1a1a" stroke="#888" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="22" cy="11" r="9.5" fill="#1a1a1a" stroke="#888" stroke-width="1.2"/>
+  </svg>
+</div>
+
+<div class="target" id="tu"></div>
+<div class="target" id="td"></div>
+<div class="target" id="tl"></div>
+<div class="target" id="tr"></div>
+
+<div class="target cap" id="tul"></div>
+<div class="target cap" id="tur"></div>
+<div class="target cap" id="tdl"></div>
+<div class="target cap" id="tdr"></div>
+
+<div id="pawn">
+  <div id="pawn-inner">
+    <svg viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg">
+      <path d="M 16 19 C 12 23, 9 28, 9 33 C 9 37, 11 39, 15 40
+               L 8 40 Q 6 40 6 42 Q 6 44 8 44 L 36 44 Q 38 44 38 42 Q 38 40 36 40
+               L 29 40 C 33 39, 35 37, 35 33 C 35 28, 32 23, 28 19 Z"
+            fill="#ffffff" stroke="#3a3a3a" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="22" cy="11" r="9.5" fill="#ffffff" stroke="#3a3a3a" stroke-width="1.2"/>
+    </svg>
+  </div>
+  <div id="gauge">
+    <svg viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg"
+         width="20" height="20" style="transform:rotate(-90deg)">
+      <circle class="gauge-track" cx="13" cy="13" r="9"/>
+      <circle class="gauge-fill"  cx="13" cy="13" r="9"/>
+    </svg>
+  </div>
+</div>
+
+<script>
+// ������ constants ������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+const STEP        = 72;
+const COMMIT_DIST = 28;
+const DIAG_ANGLE  = 30;
+
+// Pixel origin = player's starting square = (0,0) in grid space
+const OX = window.innerWidth  / 2;
+const OY = window.innerHeight / 2;
+
+// Grid integer (col, row) �넂 screen pixel
+const toX = col => OX + col * STEP;
+const toY = row => OY + row * STEP;
+
+// ������ DOM ������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+const pawnEl    = document.getElementById('pawn');
+const enemyEl   = document.getElementById('enemy');
+const gaugeFill = document.querySelector('.gauge-fill');
+
+const cardEl = {
+  u: document.getElementById('tu'), d: document.getElementById('td'),
+  l: document.getElementById('tl'), r: document.getElementById('tr'),
+};
+const diagEl = {
+  ul: document.getElementById('tul'), ur: document.getElementById('tur'),
+  dl: document.getElementById('tdl'), dr: document.getElementById('tdr'),
+};
+
+// cardinal step vectors
+const CARD = { u:[0,-1], d:[0,1], l:[-1,0], r:[1,0] };
+// diagonal step vectors
+const DIAG = { ul:[-1,-1], ur:[1,-1], dl:[-1,1], dr:[1,1] };
+
+// ������ game state (integer grid coordinates) ������������������������������������������������������������������������������������������������������������
+let pgc = 0, pgr = 0;   // player col, row
+let egc = 0, egr = 0;   // enemy  col, row
+let enemyAlive = false;
+let isHovering = false;
+let dragging   = false;
+let onCooldown = false;
+let startX = 0, startY = 0;
+
+// ������ pawn movement ���������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+function placePawn(col, row, ms = 0) {
+  pawnEl.style.transition = ms === 0 ? 'none'
+    : `left ${ms}ms cubic-bezier(0.34,1.5,0.64,1), top ${ms}ms cubic-bezier(0.34,1.5,0.64,1)`;
+  pawnEl.style.left = toX(col) + 'px';
+  pawnEl.style.top  = toY(row) + 'px';
+}
+
+function snapPawn() {
+  pawnEl.style.transition =
+    'left 100ms cubic-bezier(0.25,1,0.5,1), top 100ms cubic-bezier(0.25,1,0.5,1)';
+  pawnEl.style.left = toX(pgc) + 'px';
+  pawnEl.style.top  = toY(pgr) + 'px';
+}
+
+function placeEnemy(col, row, ms = 480) {
+  enemyEl.style.transition = ms === 0 ? 'none'
+    : `left ${ms}ms cubic-bezier(0.34,1.2,0.64,1), top ${ms}ms cubic-bezier(0.34,1.2,0.64,1)`;
+  enemyEl.style.left = toX(col) + 'px';
+  enemyEl.style.top  = toY(row) + 'px';
+}
+
+// ������ hint circles ������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+function refreshHints() {
+  // position cardinal circles
+  for (const [k, [dc, dr]] of Object.entries(CARD)) {
+    cardEl[k].style.left = toX(pgc + dc) + 'px';
+    cardEl[k].style.top  = toY(pgr + dr) + 'px';
+  }
+  // position + show/hide diagonal capture circles
+  for (const [k, [dc, dr]] of Object.entries(DIAG)) {
+    diagEl[k].style.left = toX(pgc + dc) + 'px';
+    diagEl[k].style.top  = toY(pgr + dr) + 'px';
+    // show only when hovering AND enemy is on exactly that square
+    const show = isHovering && enemyAlive
+                 && egc === pgc + dc && egr === pgr + dr;
+    diagEl[k].classList.toggle('show', show);
+  }
+}
+
+function showCardinals(on) {
+  for (const el of Object.values(cardEl)) el.classList.toggle('show', on);
+}
+
+function hideAll() {
+  for (const el of [...Object.values(cardEl), ...Object.values(diagEl)])
+    el.classList.remove('show', 'active');
+}
+
+// ������ drag classification ���������������������������������������������������������������������������������������������������������������������������������������������������������������������
+// Returns {ok, dc, dr, dist} for a valid cardinal drag, or {ok:false}
+function classifyCardinal(dx, dy) {
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  if (adx + ady < 2) return { ok: false };
+  const angle = Math.atan2(Math.min(adx, ady), Math.max(adx, ady)) * 180 / Math.PI;
+  if (angle > DIAG_ANGLE) return { ok: false };
+  if (adx >= ady) return { ok: true, dc: Math.sign(dx), dr: 0,            dist: adx };
+  else            return { ok: true, dc: 0,            dr: Math.sign(dy), dist: ady };
+}
+
+// Returns capture target {gc, gr} if the drag is diagonal toward the enemy
+function checkCapture(dx, dy) {
+  if (!enemyAlive) return null;
+  if (Math.abs(dx) < 22 || Math.abs(dy) < 22) return null;
+  const tc = pgc + Math.sign(dx);
+  const tr = pgr + Math.sign(dy);
+  return (tc === egc && tr === egr) ? { gc: tc, gr: tr } : null;
+}
+
+// ������ audio ���������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+function playClack() {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = ac.createBuffer(1, ac.sampleRate * 0.09, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * 0.016));
+    const src = ac.createBufferSource(); src.buffer = buf;
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.8;
+    const g = ac.createGain(); g.gain.value = 0.6;
+    src.connect(f); f.connect(g); g.connect(ac.destination); src.start();
+  } catch (e) {}
+}
+
+// ������ cooldown ������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+function startCooldown() {
+  onCooldown = true;
+  gaugeFill.style.animation = 'none';
+  gaugeFill.getBoundingClientRect();
+  gaugeFill.style.animation = '';
+  pawnEl.classList.add('cooldown');
+  setTimeout(() => {
+    onCooldown = false;
+    pawnEl.classList.remove('cooldown');
+    if (isHovering) { showCardinals(true); refreshHints(); }
+  }, 1000);
+}
+
+// ������ enemy logic ���������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+function spawnEnemy() {
+  // calc how many steps offscreen from player's current pixel position
+  const pyPx = toY(pgr);
+  const pxPx = toX(pgc);
+  const stUp    = Math.ceil(pyPx / STEP) + 2;
+  const stDown  = Math.ceil((window.innerHeight - pyPx) / STEP) + 2;
+  const stLeft  = Math.ceil(pxPx / STEP) + 2;
+  const stRight = Math.ceil((window.innerWidth - pxPx) / STEP) + 2;
+
+  const side = Math.floor(Math.random() * 4);
+  const off  = Math.floor(Math.random() * 5) - 2;  // �닋2..2
+
+  if      (side === 0) { egc = pgc + off; egr = pgr - stUp; }
+  else if (side === 1) { egc = pgc + off; egr = pgr + stDown; }
+  else if (side === 2) { egc = pgc - stLeft;  egr = pgr + off; }
+  else                 { egc = pgc + stRight; egr = pgr + off; }
+
+  enemyAlive = true;
+  enemyEl.style.display = 'block';
+  placeEnemy(egc, egr, 0);
+}
+
+function enemyAttack() {
+  egc = pgc; egr = pgr;
+  placeEnemy(egc, egr, 200);    // diagonal lunge
+
+  setTimeout(() => {
+    pawnEl.classList.add('hit');
+    setTimeout(() => pawnEl.classList.remove('hit'), 500);
+
+    setTimeout(() => {
+      enemyAlive = false;
+      enemyEl.style.display = 'none';
+      refreshHints();
+      setTimeout(spawnEnemy, 1200);
+    }, 500);
+  }, 200);
+}
+
+function captureEnemy(gc, gr) {
+  enemyAlive = false;
+  enemyEl.style.display = 'none';
+  pgc = gc; pgr = gr;
+  refreshHints();
+  placePawn(pgc, pgr, 240);
+  playClack();
+  startCooldown();
+  setTimeout(spawnEnemy, 2000);
+}
+
+function enemyTick() {
+  if (!enemyAlive) return;
+
+  // ������ attack: enemy is diagonally adjacent (exactly 1 step in BOTH axes) ������
+  if (Math.abs(egc - pgc) === 1 && Math.abs(egr - pgr) === 1) {
+    enemyAttack();
+    return;
+  }
+
+  // ������ move toward the closest diagonal attack position ������
+  const spots = [
+    [pgc - 1, pgr - 1], [pgc + 1, pgr - 1],
+    [pgc - 1, pgr + 1], [pgc + 1, pgr + 1],
+  ];
+  const [tgc, tgr] = spots.reduce((best, cur) =>
+    Math.hypot(cur[0] - egc, cur[1] - egr) < Math.hypot(best[0] - egc, best[1] - egr)
+      ? cur : best
+  );
+
+  const dc = tgc - egc, dr = tgr - egr;
+  const moves = Math.abs(dc) >= Math.abs(dr)
+    ? [[Math.sign(dc), 0], [0, Math.sign(dr)]]
+    : [[0, Math.sign(dr)], [Math.sign(dc), 0]];
+
+  for (const [mc, mr] of moves) {
+    if (mc === 0 && mr === 0) continue;
+    const nc = egc + mc, nr = egr + mr;
+    if (nc === pgc && nr === pgr) continue;  // can't land on player's square
+    egc = nc; egr = nr;
+    placeEnemy(egc, egr, 480);
+    if (isHovering) refreshHints();
+    break;
+  }
+}
+
+// ������ init ������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+placePawn(pgc, pgr);
+refreshHints();
+spawnEnemy();
+setInterval(enemyTick, 2000);
+
+// ������ events ������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
+pawnEl.addEventListener('mouseenter', () => {
+  isHovering = true;
+  if (!dragging && !onCooldown) { showCardinals(true); refreshHints(); }
+});
+pawnEl.addEventListener('mouseleave', () => {
+  isHovering = false;
+  if (!dragging) hideAll();
+});
+
+pawnEl.addEventListener('mousedown', e => {
+  if (onCooldown) return;
+  e.preventDefault();
+  dragging = true;
+  startX = e.clientX; startY = e.clientY;
+  pawnEl.classList.add('dragging');
+  showCardinals(true); refreshHints();
+});
+
+document.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  pawnEl.style.transition = 'none';
+  pawnEl.style.left = e.clientX + 'px';
+  pawnEl.style.top  = e.clientY + 'px';
+});
+
+document.addEventListener('mouseup', e => {
+  if (!dragging) return;
+  dragging = false;
+  isHovering = false;   // reset so circles don't flash on the new position
+  pawnEl.classList.remove('dragging');
+  hideAll();
+
+  const dx = e.clientX - startX;
+  const dy = e.clientY - startY;
+
+  // 1. diagonal capture?
+  const cap = checkCapture(dx, dy);
+  if (cap) { captureEnemy(cap.gc, cap.gr); return; }
+
+  // 2. cardinal move?
+  const info = classifyCardinal(dx, dy);
+  if (info.ok && info.dist >= COMMIT_DIST) {
+    const nc = pgc + info.dc;
+    const nr = pgr + info.dr;
+    if (enemyAlive && nc === egc && nr === egr) { snapPawn(); return; } // blocked by enemy
+    pgc = nc; pgr = nr;
+    refreshHints();
+    placePawn(pgc, pgr, 260);
+    playClack();
+    startCooldown();
+    return;
+  }
+
+  // 3. snap back
+  snapPawn();
+});
+</script>
+</body>
+</html>
